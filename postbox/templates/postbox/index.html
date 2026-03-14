@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Моя Почта</title>
+    <!-- Подключаем Bootstrap для красоты (не обязательно, но приятно) -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .message-row { cursor: pointer; }
+        .message-row.unread { font-weight: bold; background-color: #e9ecef; }
+        #emailContent { display: none; margin-top: 20px; border: 1px solid #ddd; padding: 20px; background: #fff; }
+    </style>
+</head>
+<body class="bg-light">
+
+<div class="container mt-5">
+    <h1 class="mb-4">📬Почта</h1>
+
+    <!-- Форма отправки -->
+    <div class="card mb-4">
+        <div class="card-header">Написать письмо</div>
+        <div class="card-body">
+            <form id="sendForm">
+                <div class="row">
+                    <div class="col-md-2">
+                        <input type="number" id="recipientId" class="form-control" placeholder="ID получателя" required>
+                        <small class="text-muted">ID юзера (1, 2...)</small>
+                    </div>
+                    <div class="col-md-3">
+                        <input type="text" id="subject" class="form-control" placeholder="Тема" required>
+                    </div>
+                    <div class="col-md-5">
+                        <input type="text" id="body" class="form-control" placeholder="Текст письма" required>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-primary w-100">Отправить</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Список писем -->
+    <!-- Список писем с фильтром папок -->
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <!-- Кнопки переключения папок -->
+                <button class="btn btn-sm btn-outline-primary active" onclick="setFolder('inbox', this)">📥 Входящие</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="setFolder('sent', this)">📤 Отправленные</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="setFolder('archive', this)">️ Архив</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="setFolder('trash', this)">🗑️ Корзина</button>
+            </div>
+            <button class="btn btn-sm btn-outline-dark" onclick="loadMessages()">🔄 Обновить</button>
+        </div>
+        <ul class="list-group list-group-flush" id="messageList">
+            <!-- Сюда загрузятся письма -->
+            <li class="list-group-item text-center">Загрузка...</li>
+        </ul>
+    </div>
+
+    <!-- Просмотр письма -->
+    <div id="emailContent" class="card shadow-sm">
+        <div class="card-header d-flex justify-content-between">
+            <h4 id="viewSubject">Тема письма</h4>
+            <button class="btn-close" onclick="closeEmail()"></button>
+        </div>
+        <div class="card-body">
+            <p><strong>От:</strong> <span id="viewSender"></span></p>
+            <p><strong>Дата:</strong> <span id="viewDate"></span></p>
+            <hr>
+            <p id="viewBody" style="white-space: pre-wrap;"></p>
+
+            <div class="mt-3">
+                <button class="btn btn-warning btn-sm" onclick="moveCurrent('archive')">В архив</button>
+                <button class="btn btn-danger btn-sm" onclick="moveCurrent('trash')">В корзину</button>
+                <button class="btn btn-dark btn-sm" onclick="deleteCurrent()">Удалить навсегда</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Подключаем jQuery для простых AJAX запросов -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+<script>
+    let currentMessageId = null;
+    let currentFolder = 'inbox'; // По умолчанию показываем входящие
+    // Загрузка списка писем при старте
+    $(document).ready(function() {
+        loadMessages();
+    });
+
+    function loadMessages() {
+        // Запрашиваем письма из ТЕКУЩЕЙ выбранной папки
+        $.get(`/api/mail/?folder=${currentFolder}`, function(data) {
+            const list = $('#messageList');
+            list.empty();
+
+            if (data.messages.length === 0) {
+                list.append(`<li class="list-group-item text-muted">В папке "${currentFolder}" пусто</li>`);
+                return;
+            }
+
+            data.messages.forEach(msg => {
+                const unreadClass = msg.is_read ? '' : 'unread';
+                const li = `
+                <li class="list-group-item message-row ${unreadClass}" onclick="openEmail(${msg.id})">
+                    <div class="d-flex justify-content-between">
+                        <span>${msg.subject} (от ${msg.sender})</span>
+                        <small class="text-muted">${msg.date}</small>
+                    </div>
+                </li>
+            `;
+                list.append(li);
+            });
+        });
+    }
+
+    // Функция для переключения папок
+    function setFolder(folder, btnElement) {
+        currentFolder = folder;
+
+        // Обновляем внешний вид кнопок (активная становится синей, остальные серыми)
+        $('.card-header button').removeClass('btn-outline-primary active').addClass('btn-outline-secondary');
+        $(btnElement).removeClass('btn-outline-secondary').addClass('btn-outline-primary active');
+
+        loadMessages(); // Перезагружаем список для новой папки
+    }
+    // Отправка письма
+    $('#sendForm').on('submit', function(e) {
+        e.preventDefault();
+        const data = {
+            recipient_id: $('#recipientId').val(),
+            subject: $('#subject').val(),
+            body: $('#body').val()
+        };
+
+        $.ajax({
+            url: '/api/mail/send/',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function() {
+                // Вместо alert просто очищаем форму и обновляем список
+                $('#sendForm')[0].reset();
+                loadMessages();
+                // Можно добавить тихую надпись "Отправлено", если хочешь
+            },
+            error: function(err) {
+                // Ошибку всё же покажем, чтобы ты знал, что что-то не так
+                alert('Ошибка: ' + (err.responseJSON?.error || 'Не удалось отправить'));
+            }
+        });
+    });
+
+    // Открытие письма
+    function openEmail(id) {
+        $.get(`/api/mail/${id}/`, function(data) {
+            currentMessageId = id;
+            $('#viewSubject').text(data.subject);
+            $('#viewSender').text(data.sender);
+            $('#viewDate').text(data.date || data.created_at); // Проверка разных форматов
+            $('#viewBody').text(data.body);
+            $('#emailContent').slideDown();
+            loadMessages(); // Обновить список (чтобы пропал жирный шрифт "непрочитано")
+        });
+    }
+
+    function closeEmail() {
+        $('#emailContent').slideUp();
+        currentMessageId = null;
+    }
+
+
+    function moveCurrent(folder) {
+        if (!currentMessageId) return;
+
+        $.ajax({
+            url: `/api/mail/${currentMessageId}/move/`,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ folder: folder }),
+            success: function() {
+                // Просто закрываем письмо и обновляем список
+                closeEmail();
+                loadMessages();
+            },
+            error: function() {
+                alert('Не удалось переместить письмо');
+            }
+        });
+    }
+
+
+    function deleteCurrent() {
+        if (!currentMessageId) return;
+
+        if(!confirm('Вы точно хотите удалить это письмо навсегда?')) return;
+
+        $.ajax({
+            url: `/api/mail/${currentMessageId}/delete/`,
+            method: 'POST',
+            success: function() {
+                // Тихое удаление: закрыли, обновили список
+                closeEmail();
+                loadMessages();
+            },
+            error: function() {
+                alert('Не удалось удалить письмо');
+            }
+        });
+    }
+</script>
+
+</body>
+</html>
